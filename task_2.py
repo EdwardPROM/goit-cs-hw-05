@@ -1,28 +1,15 @@
 import string
-import asyncio
+import concurrent.futures
 from collections import defaultdict, Counter
-
-import httpx
+import requests
 from matplotlib import pyplot as plt
-
-
-async def get_text(url):
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-        if response.status_code == 200:
-            return response.text
-        else:
-            return None
-
 
 # Функція для видалення знаків пунктуації
 def remove_punctuation(text):
     return text.translate(str.maketrans("", "", string.punctuation))
 
-
-async def map_function(word) -> tuple:
+def map_function(word) -> tuple:
     return word, 1
-
 
 def shuffle_function(mapped_values):
     shuffled = defaultdict(list)
@@ -30,33 +17,35 @@ def shuffle_function(mapped_values):
         shuffled[key].append(value)
     return shuffled.items()
 
-
-async def reduce_function(key_values):
+def reduce_function(key_values):
     key, values = key_values
     return key, sum(values)
 
-
 # Виконання MapReduce
-async def map_reduce(text, search_words=None):
-    text = await get_text(url)
-    if text:
+def map_reduce(url, search_words=None):
+    response = requests.get(url)
+    if response.status_code == 200:
+        # Отримання тексту з відповіді
+        text = response.text
+
         # Видалення знаків пунктуації
         text = remove_punctuation(text)
         words = text.split()
 
-        # Паралельний Мапінг
-        mapped_values = await asyncio.gather(*[map_function(word) for word in words])
+        # Мапінг
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            mapped_values = list(executor.map(map_function, words))
 
-        # Крок 2: Shuffle
+        # Shuffle
         shuffled_values = shuffle_function(mapped_values)
 
-        # Паралельна Редукція
-        reduced_values = await asyncio.gather(*[reduce_function(key_values) for key_values in shuffled_values])
+        # Редукція
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            reduced_values = list(executor.map(reduce_function, shuffled_values))
 
         return dict(reduced_values)
     else:
         return None
-
 
 def visual_result(result):
     top_10 = Counter(result).most_common(10)
@@ -68,12 +57,11 @@ def visual_result(result):
     plt.title('10 найпопулярніших слів')
     plt.show()
 
-
 if __name__ == '__main__':
     # Вхідний текст для обробки
     url = "https://gutenberg.net.au/ebooks01/0100021.txt"
     # Виконання MapReduce на вхідному тексті
-    result = asyncio.run(map_reduce(url))
+    result = map_reduce(url)
 
     print("Результат підрахунку слів:", result)
     visual_result(result)
